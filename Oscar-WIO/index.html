@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oscar WIO</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="shell">
+        <header class="hero">
+          <p class="eyebrow">OSCAR WIO</p>
+          <h1>AI Oscar 2.0</h1>
+          <p class="hint">Write a question in the box below and get an answer from your local Oscar notes.</p>
+          <div class="controls">
+            <button id="start-ai" type="button">Start Oscar AI</button>
+            <button id="stop-ai" type="button" class="secondary">Stop Oscar AI</button>
+            <span id="ai-state" class="state">Checking...</span>
+          </div>
+        </header>
+
+        <section class="grid">
+          <form id="ask-form" class="card question-card">
+            <h2>Question Box</h2>
+            <label for="question">Your question</label>
+            <textarea
+              id="question"
+              name="question"
+              rows="8"
+              placeholder="What are Oscar's strongest study habits?"
+              required
+            ></textarea>
+            <button id="ask-button" type="submit">Ask Oscar</button>
+            <p id="status" class="status" aria-live="polite"></p>
+          </form>
+
+          <section class="card answer-card" id="result">
+            <h2>Answer Box</h2>
+            <pre id="answer">Your answer appears here.</pre>
+            <details>
+              <summary>Show matched snippets</summary>
+              <ul id="matches"></ul>
+            </details>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("ask-form");
+      const result = document.getElementById("result");
+      const answer = document.getElementById("answer");
+      const matches = document.getElementById("matches");
+      const status = document.getElementById("status");
+      const askButton = document.getElementById("ask-button");
+      const startButton = document.getElementById("start-ai");
+      const stopButton = document.getElementById("stop-ai");
+      const aiState = document.getElementById("ai-state");
+      const API_URL = "http://localhost:8090/api/ask";
+      const CONTROL_URL = "./control.php";
+
+      async function refreshState() {
+        try {
+          const res = await fetch(`${CONTROL_URL}?action=status`);
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error("status failed");
+          aiState.textContent = data.running ? "Oscar AI: Running" : "Oscar AI: Stopped";
+        } catch (_) {
+          aiState.textContent = "Oscar AI: Unknown";
+        }
+      }
+
+      async function control(action) {
+        aiState.textContent = action === "start" ? "Starting..." : "Stopping...";
+        try {
+          const res = await fetch(`${CONTROL_URL}?action=${action}`);
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            const detail = data.details ? ` ${data.details}` : "";
+            throw new Error((data.error || "Action failed") + detail);
+          }
+          await refreshState();
+        } catch (err) {
+          aiState.textContent = `Oscar AI: ${String(err.message || "Error")}`;
+        }
+      }
+
+      startButton.addEventListener("click", () => control("start"));
+      stopButton.addEventListener("click", () => control("stop"));
+      refreshState();
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const question = document.getElementById("question").value.trim();
+        if (!question) return;
+
+        askButton.disabled = true;
+        status.textContent = "Thinking...";
+        answer.textContent = "Thinking...";
+        matches.innerHTML = "";
+        result.classList.add("is-active");
+
+        try {
+          const res = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question })
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            answer.textContent = data.error || "Error";
+            status.textContent = "Request failed.";
+            return;
+          }
+
+          answer.textContent = data.answer;
+          status.textContent = `Done. Mode: ${data.mode || "unknown"}.`;
+
+          for (const row of data.matches || []) {
+            const li = document.createElement("li");
+            li.textContent = `${row.source}: ${row.text.slice(0, 220)}${row.text.length > 220 ? "..." : ""}`;
+            matches.appendChild(li);
+          }
+        } catch (err) {
+          answer.textContent = "Could not contact Oscar backend.";
+          status.textContent = "Start Python server: python3 server.py";
+        } finally {
+          askButton.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
